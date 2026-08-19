@@ -3,8 +3,8 @@
 基于 STM32 与华为云 CodeArts 的智慧农业边缘计算终端。
 
 ## 项目展示
-![整体效果](overview.jpg)
-![云端看板](dashboard.png)
+![整体效果](images/overview.jpg)
+![云端看板](images/dashboard.png)
 
 ## 演示视频
 视频待上传
