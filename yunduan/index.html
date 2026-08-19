@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🌻 追光灌溉机器人 · 实时监控看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        :root {
+            --gold: #FFB800;
+            --blue: #00BFFF;
+            --bg-dark-green: #0a1f16;
+            --bg-dark-blue: #0f0c29;
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.65);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--bg-dark-green) 0%, var(--bg-dark-blue) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* 粒子背景 */
+        #particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+        .particle {
+            position: absolute;
+            background: var(--blue);
+            border-radius: 50%;
+            opacity: 0.4;
+            animation: float 15s infinite linear;
+        }
+        @keyframes float {
+            0% { transform: translateY(100vh) translateX(0); opacity: 0; }
+            10% { opacity: 0.4; }
+            90% { opacity: 0.4; }
+            100% { transform: translateY(-10vh) translateX(50px); opacity: 0; }
+        }
+
+        /* 头部 */
+        header {
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--glass-border);
+        }
+        h1 {
+            font-size: 24px;
+            background: linear-gradient(to right, var(--gold), var(--blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .heartbeat {
+            width: 12px;
+            height: 12px;
+            background: #ff4d4f;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.7); }
+            70% { transform: scale(1.2); opacity: 0.7; box-shadow: 0 0 0 10px rgba(255, 77, 79, 0); }
+            100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(255, 77, 79, 0); }
+        }
+
+        /* 布局 */
+        .dashboard {
+            padding: 30px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 25px;
+        }
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            min-width: 0;
+        }
+        .card:hover {
+            border-color: var(--blue);
+            box-shadow: 0 0 15px rgba(0, 191, 255, 0.3);
+        }
+        .card-title {
+            font-size: 16px;
+            color: var(--text-secondary);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        /* 第一排图表容器 */
+        .chart-container {
+            height: 240px;
+            width: 100%;
+            max-width: 100%;
+            position: relative;
+        }
+
+        /* 向日葵与光照 */
+        .light-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+        }
+        #sunflower-svg {
+            width: 120px;
+            height: 120px;
+            transition: transform 0.5s ease;
+            margin-bottom: 15px;
+        }
+        .light-info {
+            text-align: center;
+        }
+        .light-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: var(--gold);
+        }
+        .servo-angle {
+            font-size: 14px;
+            color: var(--blue);
+            margin-top: 5px;
+        }
+
+        /* 水滴动画 */
+        .water-drop {
+            position: absolute;
+            width: 8px;
+            height: 12px;
+            background: var(--blue);
+            border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+            box-shadow: 0 0 5px var(--blue);
+            pointer-events: none;
+            animation: drop-fall 1s ease-in forwards;
+            z-index: 10;
+        }
+        @keyframes drop-fall {
+            0% { transform: translateY(0) scale(1); opacity: 0; }
+            20% { opacity: 1; }
+            100% { transform: translateY(150px) scale(0.5); opacity: 0; }
+        }
+
+        /* 第三排：状态、控制、日志 */
+        .status-list, .log-list {
+            list-style: none;
+            height: 200px;
+            overflow-y: auto;
+        }
+        .status-item, .log-item {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        .status-item span, .log-item span {
+            min-width: 0;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        .status-item span:first-child, .log-item span:first-child {
+            color: var(--text-secondary);
+        }
+        .log-item {
+            flex-direction: column;
+        }
+        .log-time {
+            font-size: 12px;
+            color: var(--blue);
+        }
+        
+        .control-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(to right, var(--blue), #0077cc);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 191, 255, 0.4);
+        }
+        .control-btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--blue);
+            border-radius: 3px;
+        }
+
+        /* ===== 响应式布局 ===== */
+
+        /* 平板：768px - 1024px 两列布局 */
+        @media (max-width: 1024px) {
+            .dashboard {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        /* 手机：小于 768px 单列布局 */
+        @media (max-width: 768px) {
+            header {
+                padding: 12px 16px;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            h1 {
+                font-size: 18px;
+                gap: 8px;
+            }
+            .dashboard {
+                padding: 12px;
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+            .card {
+                padding: 14px;
+                border-radius: 14px;
+            }
+            .card-title {
+                font-size: 14px;
+                margin-bottom: 10px;
+            }
+            .chart-container {
+                height: 220px;
+            }
+            #history-chart {
+                height: 260px !important;
+            }
+            .status-list, .log-list {
+                height: 160px;
+            }
+            #sunflower-svg {
+                width: 90px;
+                height: 90px;
+                margin-bottom: 10px;
+            }
+            .light-value {
+                font-size: 22px;
+            }
+            .control-btn {
+                font-size: 15px;
+                padding: 12px;
+            }
+        }
+
+        /* 小屏手机：小于 480px */
+        @media (max-width: 480px) {
+            header {
+                padding: 10px 12px;
+                gap: 6px;
+            }
+            h1 {
+                font-size: 16px;
+                gap: 6px;
+            }
+            .dashboard {
+                padding: 8px;
+                gap: 10px;
+            }
+            .card {
+                padding: 12px;
+                border-radius: 12px;
+            }
+            .card-title {
+                font-size: 13px;
+                margin-bottom: 8px;
+                gap: 6px;
+            }
+            .chart-container {
+                height: 220px;
+            }
+            #history-chart {
+                height: 240px !important;
+            }
+            .light-value {
+                font-size: 20px;
+            }
+            .servo-angle {
+                font-size: 13px;
+            }
+            .status-item, .log-item {
+                font-size: 13px;
+            }
+            .log-time {
+                font-size: 11px;
+            }
+            .control-btn {
+                font-size: 14px;
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="particles"></div>
+
+    <header>
+        <h1>🌻 追光灌溉机器人 · 实时监控看板</h1>
+        <div style="display:flex;align-items:center;gap:10px;">
+            <div class="heartbeat"></div>
+            <span style="color:var(--text-secondary)">系统运行中</span>
+        </div>
+    </header>
+
+    <div class="dashboard">
+        <!-- 第一排 -->
+        <div class="card" id="humidity-card">
+            <div class="card-title">💧 土壤湿度</div>
+            <div class="chart-container" id="humidity-gauge"></div>
+        </div>
+        <div class="card">
+            <div class="card-title">🌱 土壤健康评分</div>
+            <div class="chart-container" id="health-ring"></div>
+        </div>
+        <div class="card">
+            <div class="card-title">☀️ 光照与追光状态</div>
+            <div class="light-content">
+                <svg id="sunflower-svg" viewBox="0 0 200 200">
+                    <g id="sunflower-group" transform="rotate(0 100 100)">
+                        <g id="petals-group"></g>
+                        <circle cx="100" cy="100" r="30" fill="#5D4037" />
+                        <circle cx="100" cy="100" r="25" fill="#8D6E63" />
+                    </g>
+                </svg>
+                <div class="light-info">
+                    <div class="light-value" id="light-value">光照：0 Lux</div>
+                    <div class="servo-angle" id="servo-angle">舵机角度：0°</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 第二排 -->
+        <div class="card full-width">
+            <div class="card-title">📊 湿度历史曲线与浇水记录</div>
+            <div class="chart-container" id="history-chart" style="height: 300px;"></div>
+        </div>
+
+        <!-- 第三排 -->
+        <div class="card">
+            <div class="card-title">🛠️ 设备状态</div>
+            <ul class="status-list" id="device-status">
+                <li class="status-item">
+                    <span>水泵状态</span>
+                    <span id="pump-status"
+                          title="当前水泵状态来自下位机串口反馈；P:0 表示关闭，P:1 表示开启">
+                        暂无状态
+                    </span>
+                </li>
+                <li class="status-item">
+                    <span>云端连接</span>
+                    <span id="network-status">检查中</span>
+                </li>
+                <li class="status-item">
+                    <span>数据链路</span>
+                    <span id="serial-status"
+                          title="传感器通过 COM5 串口发送 H、P、L、A 数据，经本地服务和华为云转发到网页">检查中</span>
+                </li>
+                <li class="status-item">
+                    <span>控制模式</span>
+                    <span id="control-mode"
+                          title="当前通过网页的'立即浇水'按钮手动触发，尚未启用自动浇水"
+                          style="color: #00BFFF;">手动控制</span>
+                </li>
+            </ul>
+        </div>
+        <div class="card">
+            <div class="card-title">🎮 手动控制</div>
+            <p style="color:var(--text-secondary);font-size:14px;">点击下方按钮立即触发一次灌溉流程</p>
+            <button class="control-btn" id="water-btn">立即浇水</button>
+            <div id="water-feedback" style="margin-top:10px;color:var(--blue);font-size:12px;"></div>
+        </div>
+        <div class="card">
+            <div class="card-title">📝 系统事件日志</div>
+            <ul class="log-list" id="event-log"></ul>
+        </div>
+    </div>
+
+    <script>
+        // 初始化粒子背景
+        const particlesContainer = document.getElementById('particles');
+        for (let i = 0; i < 30; i++) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            p.style.left = Math.random() * 100 + '%';
+            p.style.width = Math.random() * 5 + 2 + 'px';
+            p.style.height = p.style.width;
+            p.style.animationDuration = (Math.random() * 10 + 10) + 's';
+            p.style.animationDelay = Math.random() * 5 + 's';
+            particlesContainer.appendChild(p);
+        }
+
+        // 初始化向日葵花瓣
+        const petalsGroup = document.getElementById('petals-group');
+        for (let i = 0; i < 12; i++) {
+            const angle = i * 30;
+            const petal = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+            petal.setAttribute('cx', 100);
+            petal.setAttribute('cy', 40);
+            petal.setAttribute('rx', 15);
+            petal.setAttribute('ry', 40);
+            petal.setAttribute('fill', '#FFB800'); // 默认金色
+            petal.setAttribute('transform', `rotate(${angle} 100 100)`);
+            petalsGroup.appendChild(petal);
+        }
+
+        // ECharts 初始化
+        const humidityChart = echarts.init(document.getElementById('humidity-gauge'));
+        const healthChart = echarts.init(document.getElementById('health-ring'));
+        const historyChart = echarts.init(document.getElementById('history-chart'));
+
+        // 全局状态
+        let lastWaterPumpStatus = false;
+        let latestConnectionFailed = false;   // /api/latest 连接失败标志
+        let historyConnectionFailed = false;  // /api/history 连接失败标志
+
+
+        // 设置云端连接状态文字与颜色
+        // color: 'green' 正常 / 'red' 失败 / '' 检查中（默认）
+        function setNetworkStatus(text, color) {
+            const el = document.getElementById('network-status');
+            el.innerText = text;
+            if (color === 'green') {
+                el.style.color = '#52c41a';
+            } else if (color === 'red') {
+                el.style.color = '#ff4d4f';
+            } else {
+                el.style.color = '';
+            }
+        }
+
+        // 设置数据链路状态文字与颜色
+        // color: 'green' 正常 / 'yellow' 等待数据 / 'red' 异常 / '' 检查中（默认）
+        function setSerialStatus(text, color) {
+            const el = document.getElementById('serial-status');
+            el.innerText = text;
+            if (color === 'green') {
+                el.style.color = '#52c41a';
+            } else if (color === 'yellow') {
+                el.style.color = '#faad14';
+            } else if (color === 'red') {
+                el.style.color = '#ff4d4f';
+            } else {
+                el.style.color = '';
+            }
+        }
+
+        // 判断对象是否为空对象 {}（没有任何自身可枚举属性）
+        function isEmptyObject(data) {
+            return data != null &&
+                   typeof data === 'object' &&
+                   !Array.isArray(data) &&
+                   Object.keys(data).length === 0;
+        }
+
+        // 判断 /api/latest 返回的数据是否包含"完整且有效"的传感器字段
+        // 必须四项全部满足才算有效：
+        //   humidity 是 0～100 的有效数字
+        //   pump 是 0 或 1
+        //   light 是大于等于 0 的有效数字
+        //   angle 是 0～180 的有效数字
+        function hasValidSensorData(data) {
+            if (!data) return false;
+            const hasHumidity = (typeof data.humidity === 'number' && !isNaN(data.humidity) &&
+                                 data.humidity >= 0 && data.humidity <= 100);
+            const hasPump = (data.pump === 0 || data.pump === 1);
+            const hasLight = (typeof data.light === 'number' && !isNaN(data.light) &&
+                              data.light >= 0);
+            const hasAngle = (typeof data.angle === 'number' && !isNaN(data.angle) &&
+                              data.angle >= 0 && data.angle <= 180);
+            return hasHumidity && hasPump && hasLight && hasAngle;
+        }
+
+        // 添加日志
+        function addLog(message) {
+            const logList = document.getElementById('event-log');
+            const li = document.createElement('li');
+            li.className = 'log-item';
+            const now = new Date();
+            li.innerHTML = `<span class="log-time">${now.toLocaleTimeString()}</span><span>${message}</span>`;
+            logList.prepend(li);
+            if (logList.children.length > 20) logList.lastChild.remove();
+        }
+
+        // 触发水滴动画
+        function triggerWaterDrops() {
+            const card = document.getElementById('humidity-card');
+            const dropCount = Math.floor(Math.random() * 4) + 5; // 5-8个
+            for (let i = 0; i < dropCount; i++) {
+                const drop = document.createElement('div');
+                drop.className = 'water-drop';
+                drop.style.left = (Math.random() * 80 + 10) + '%';
+                drop.style.top = '40px'; // 从仪表盘上方开始
+                drop.style.animationDelay = Math.random() * 0.3 + 's';
+                card.appendChild(drop);
+                setTimeout(() => drop.remove(), 1500);
+            }
+        }
+
+        // 更新仪表盘
+        function updateHumidityGauge(value) {
+            const option = {
+                series: [{
+                    type: 'gauge',
+                    radius: '90%',
+                    progress: { show: true, width: 18, itemStyle: { color: '#FFB800' } },
+                    axisLine: { lineStyle: { width: 18, color: [[1, 'rgba(255,255,255,0.1)']] } },
+                    pointer: { itemStyle: { color: '#FFB800' } },
+                    axisTick: { show: false },
+                    splitLine: { length: 10, lineStyle: { color: '#999' } },
+                    axisLabel: { color: '#999', distance: 25 },
+                    detail: { valueAnimation: true, formatter: '{value}%', color: '#FFB800', fontSize: 24, offsetCenter: [0, '20%'] },
+                    data: [{ value: value }]
+                }]
+            };
+            humidityChart.setOption(option);
+        }
+
+        // 更新健康评分
+        // humidity: 0-100 的百分比；light: 光照值（数值或 null）
+        function updateHealthRing(humidity, light) {
+            // 数据有效性检查：湿度和光照都必须是有效数字，否则显示"暂无评分"
+            const hasHumidity = (typeof humidity === 'number' && !isNaN(humidity));
+            const hasLight = (typeof light === 'number' && !isNaN(light));
+
+            if (!hasHumidity || !hasLight) {
+                // 没有数据：显示"暂无评分"，避免出现无效占位或乱码
+                healthChart.clear();
+                healthChart.setOption({
+                    title: {
+                        text: '暂无评分',
+                        left: 'center',
+                        top: 'center',
+                        textStyle: { color: '#999', fontSize: 16, fontWeight: 'normal' }
+                    }
+                });
+                return;
+            }
+
+            // ===== 健康评分算法（结果 0-100）=====
+            // 思路：湿度占 60 分，光照占 40 分，合计 0-100。
+            // 1) 湿度评分：土壤湿度 40%-60% 为最佳区间，得满分 60；
+            //    低于 40% 偏干，按线性递减扣分；
+            //    高于 60% 偏湿，按线性递减扣分。
+            // 2) 光照评分：有光照（light > 0）得满分 40，无光照得 0 分。
+            let humidityScore = 0;
+            if (humidity >= 40 && humidity <= 60) {
+                humidityScore = 60;  // 最佳区间满分
+            } else if (humidity < 40) {
+                humidityScore = Math.round(humidity / 40 * 60);  // 偏干，线性扣分
+            } else {
+                humidityScore = Math.round(Math.max(0, 60 - (humidity - 60) * 1.5));  // 偏湿，线性扣分
+            }
+
+            let lightScore = light > 0 ? 40 : 0;  // 有光照满分，无光照 0 分
+
+            // 综合评分，限制在 0-100 之间
+            let score = Math.min(100, Math.max(0, humidityScore + lightScore));
+            score = Math.round(score);
+
+            const option = {
+                series: [{
+                    type: 'pie',
+                    radius: ['65%', '80%'],
+                    avoidLabelOverlap: false,
+                    label: { show: false },
+                    emphasis: { scale: false },
+                    itemStyle: { borderRadius: 10, borderColor: 'transparent', borderWidth: 2 },
+                    data: [
+                        { value: score, itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 1, 1, [{ offset: 0, color: '#FFB800' }, { offset: 1, color: '#FF6B00' }]) } },
+                        { value: 100 - score, itemStyle: { color: 'rgba(255,255,255,0.1)' } }
+                    ]
+                }, {
+                    type: 'pie',
+                    radius: ['0%', '60%'],
+                    silent: true,
+                    label: { show: true, position: 'center', formatter: `{a|${score}}\n{b|健康评分}`, rich: { a: { fontSize: 32, color: '#FFB800', fontWeight: 'bold' }, b: { fontSize: 14, color: '#999', padding: [10, 0, 0, 0] } } },
+                    data: [{ value: 1, itemStyle: { color: 'rgba(0,0,0,0)' } }]
+                }]
+            };
+            healthChart.setOption(option);
+        }
+
+        // 更新历史曲线
+        // historyData: 后端返回的数组，每条含 humidity / pump / light / angle / timestamp
+        function updateHistoryChart(historyData) {
+            // 读取 item.timestamp（毫秒时间戳）和 item.humidity（0-100 百分比）
+            const times = historyData.map(d => new Date(d.timestamp).toLocaleTimeString());
+            const humidities = historyData.map(d => d.humidity);
+            
+            // 浇水标记点：使用 pump 字段（pump === 1 表示该时刻正在浇水）
+            const markPoints = [];
+            historyData.forEach((d, i) => {
+                if (d.pump === 1) {
+                    markPoints.push({
+                        coord: [i, d.humidity],
+                        symbol: 'circle',
+                        symbolSize: 1,
+                        label: { show: true, formatter: '💧', fontSize: 18, color: '#00BFFF', offset: [0, -10] }
+                    });
+                }
+            });
+
+            const option = {
+                tooltip: { trigger: 'axis' },
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                xAxis: { type: 'category', data: times, axisLine: { lineStyle: { color: '#666' } }, axisLabel: { color: '#999' } },
+                yAxis: { type: 'value', min: 0, max: 100, axisLine: { show: false }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } }, axisLabel: { color: '#999' } },
+                series: [{
+                    data: humidities,
+                    type: 'line',
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { color: '#FFB800', width: 3 },
+                    areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(0, 191, 255, 0.5)' }, { offset: 1, color: 'rgba(0, 191, 255, 0)' }]) },
+                    markPoint: { data: markPoints }
+                }]
+            };
+            historyChart.setOption(option);
+        }
+
+        // 更新光照和向日葵
+        // light: 光照值（数值或 null）；servoAngle: 舵机角度（数值或 null）
+        function updateLightStatus(light, servoAngle) {
+            const lightEl = document.getElementById('light-value');
+            const servoEl = document.getElementById('servo-angle');
+
+            // 光照显示：有数据显示数值，无数据显示"暂无数据"
+            if (light !== null && light !== undefined && !isNaN(light)) {
+                lightEl.innerText = `光照：${light} Lux`;
+            } else {
+                lightEl.innerText = '光照：暂无数据';
+            }
+
+            // 舵机角度显示：有数据显示角度，无数据显示"暂无数据"
+            if (servoAngle !== null && servoAngle !== undefined && !isNaN(servoAngle)) {
+                servoEl.innerText = `舵机角度：${servoAngle}°`;
+                // 旋转向日葵
+                const sunflowerGroup = document.getElementById('sunflower-group');
+                sunflowerGroup.setAttribute('transform', `rotate(${servoAngle} 100 100)`);
+            } else {
+                servoEl.innerText = '舵机角度：暂无数据';
+            }
+
+            // 改变花瓣颜色：有光照（light > 0）显示金色，否则灰色
+            const petals = document.querySelectorAll('#petals-group ellipse');
+            const color = (light !== null && light !== undefined && !isNaN(light) && light > 0) ? '#FFB800' : '#555';
+            petals.forEach(p => p.setAttribute('fill', color));
+        }
+
+        // 显示实时数据连接失败状态（不使用随机数填充）
+        // 触发场景：/api/latest 请求失败（网络断开或服务不可达）
+        function showLatestConnectionFailure() {
+            // 湿度仪表盘：空状态提示
+            humidityChart.clear();
+            humidityChart.setOption({
+                title: {
+                    text: '暂无实时数据',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: { color: '#999', fontSize: 14, fontWeight: 'normal' }
+                }
+            });
+            // 健康评分环：空状态提示（不出现无效占位）
+            healthChart.clear();
+            healthChart.setOption({
+                title: {
+                    text: '暂无评分',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: { color: '#999', fontSize: 16, fontWeight: 'normal' }
+                }
+            });
+            // 光照与舵机角度：不使用随机数
+            document.getElementById('light-value').innerText = '光照：暂无实时数据';
+            document.getElementById('servo-angle').innerText = '舵机角度：暂无数据';
+            // 设备状态：水泵不使用随机数
+            const pumpEl = document.getElementById('pump-status');
+            pumpEl.innerText = '暂无状态';
+            pumpEl.style.color = '#999';
+            // 云端连接：接口请求失败
+            setNetworkStatus('连接失败', 'red');
+            // 数据链路：接口请求失败，无法判断串口，标记为异常（云端连接失败）
+            setSerialStatus('异常（云端连接失败）', 'red');
+        }
+
+        // 接口请求成功但后端尚未收到真实串口数据（返回空对象）时的空状态
+        // 与 showLatestConnectionFailure 的区别：网络是正常的，串口在等待数据
+        function showEmptyDataState() {
+            humidityChart.clear();
+            humidityChart.setOption({
+                title: {
+                    text: '暂无实时数据',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: { color: '#999', fontSize: 14, fontWeight: 'normal' }
+                }
+            });
+            healthChart.clear();
+            healthChart.setOption({
+                title: {
+                    text: '暂无评分',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: { color: '#999', fontSize: 16, fontWeight: 'normal' }
+                }
+            });
+            document.getElementById('light-value').innerText = '光照：暂无实时数据';
+            document.getElementById('servo-angle').innerText = '舵机角度：暂无数据';
+            const pumpEl = document.getElementById('pump-status');
+            pumpEl.innerText = '暂无状态';
+            pumpEl.style.color = '#999';
+            // 云端连接：接口请求成功，网络正常
+            setNetworkStatus('正常', 'green');
+            // 数据链路：接口成功但返回空对象，下位机尚未上传串口数据
+            setSerialStatus('等待数据（未收到串口数据）', 'yellow');
+        }
+
+        // 接口请求成功且返回非空对象，但字段不完整或字段值无效时的状态
+        // 与 showEmptyDataState 的区别：后端确实返回了数据，但格式不符合预期
+        function showInvalidDataState() {
+            humidityChart.clear();
+            humidityChart.setOption({
+                title: {
+                    text: '暂无实时数据',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: { color: '#999', fontSize: 14, fontWeight: 'normal' }
+                }
+            });
+            healthChart.clear();
+            healthChart.setOption({
+                title: {
+                    text: '暂无评分',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: { color: '#999', fontSize: 16, fontWeight: 'normal' }
+                }
+            });
+            document.getElementById('light-value').innerText = '光照：暂无实时数据';
+            document.getElementById('servo-angle').innerText = '舵机角度：暂无数据';
+            const pumpEl = document.getElementById('pump-status');
+            pumpEl.innerText = '暂无状态';
+            pumpEl.style.color = '#999';
+            // 云端连接：接口请求成功，网络正常
+            setNetworkStatus('正常', 'green');
+            // 数据链路：接口成功但数据格式错误（字段不完整或字段值无效）
+            setSerialStatus('异常（数据格式错误）', 'red');
+        }
+
+        // 获取最新数据
+        async function fetchLatestData() {
+            let requestOk = false;
+            let data = null;
+            try {
+                let res = await fetch('/api/latest');
+                if (!res.ok) throw new Error();
+                data = await res.json();
+                requestOk = true;
+            } catch (e) {
+                // 接口失败：不再生成随机 Mock 数据，明确提示连接失败
+                if (!latestConnectionFailed) {
+                    showLatestConnectionFailure();
+                    addLog('⚠️ 服务器连接失败，当前不是实时数据');
+                    latestConnectionFailed = true;
+                    // 连接失败时重置水泵状态，避免恢复后误触发动画
+                    lastWaterPumpStatus = false;
+                }
+                return;
+            }
+
+            // 连接恢复提示（避免刷屏：仅在由失败转为成功时记录一次）
+            if (latestConnectionFailed) {
+                addLog('✅ 服务器连接已恢复，实时数据正常');
+                latestConnectionFailed = false;
+            }
+
+            // 后端在尚未收到真实串口数据时返回空对象 {}，
+            // 此时网络正常但串口尚未上传数据，按"等待数据"处理，不伪造任何数据。
+            if (isEmptyObject(data)) {
+                showEmptyDataState();
+                return;
+            }
+
+            // 接口成功且返回非空对象，但字段不完整或字段值无效，
+            // 说明数据格式不符合预期，按"数据格式错误"处理，不伪造任何数据。
+            if (!hasValidSensorData(data)) {
+                showInvalidDataState();
+                return;
+            }
+
+            // ===== 收到完整且有效的真实数据 =====
+            // 云端连接正常、数据链路正常
+            setNetworkStatus('正常', 'green');
+            setSerialStatus('正常', 'green');
+
+            // 统一字段读取：humidity（0-100 百分比）/ pump / light / angle
+            const humidity = Number(data.humidity);
+            const light = (data.light !== undefined && data.light !== null) ? Number(data.light) : null;
+            const angle = (data.angle !== undefined && data.angle !== null) ? Number(data.angle) : null;
+            const pump = data.pump;  // 0=关闭，1=开启
+
+            // 湿度仪表盘（后端已换算为 0-100 百分比，不会出现 2592%）
+            updateHumidityGauge(humidity);
+            // 健康评分：根据湿度和光照计算
+            updateHealthRing(humidity, light);
+            // 光照与舵机角度：使用 data.light / data.angle（不再用 servoAngle）
+            updateLightStatus(light, angle);
+
+            // 水泵状态：P=0 显示"关闭"，P=1 显示"开启"，无 data.pump 显示"暂无状态"
+            const pumpEl = document.getElementById('pump-status');
+            if (pump === 0 || pump === 1) {
+                pumpEl.innerText = pump === 1 ? '开启' : '关闭';
+                pumpEl.style.color = pump === 1 ? '#00BFFF' : '#999';
+            } else {
+                pumpEl.innerText = '暂无状态';
+                pumpEl.style.color = '#999';
+            }
+
+            // 检测水泵开启状态变化触发动画（使用 data.pump）
+            const pumpOn = (pump === 1);
+            if (pumpOn && !lastWaterPumpStatus) {
+                triggerWaterDrops();
+                addLog('💧 水泵已开启，开始灌溉');
+            } else if (!pumpOn && lastWaterPumpStatus) {
+                addLog('✋ 水泵已关闭，灌溉结束');
+            }
+            lastWaterPumpStatus = pumpOn;
+        }
+
+        // 显示历史曲线空状态
+        function showHistoryEmpty(subText) {
+            historyChart.clear();
+            const option = {
+                title: {
+                    text: '暂无历史数据',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: { color: '#999', fontSize: 16, fontWeight: 'normal' }
+                }
+            };
+            if (subText) {
+                option.title.subtext = subText;
+                option.title.subtextStyle = { color: '#ff4d4f', fontSize: 12 };
+            }
+            historyChart.setOption(option);
+        }
+
+        // 获取历史数据
+        async function fetchHistoryData() {
+            try {
+                let res = await fetch('/api/history');
+                if (!res.ok) throw new Error();
+                var data = await res.json();
+            } catch (e) {
+                // 接口失败：不绘制随机历史数据，显示空状态提示
+                if (!historyConnectionFailed) {
+                    addLog('⚠️ 历史数据接口连接失败');
+                    historyConnectionFailed = true;
+                }
+                showHistoryEmpty('服务器连接失败');
+                return;
+            }
+
+            // 连接恢复提示
+            if (historyConnectionFailed) {
+                addLog('✅ 历史数据接口已恢复');
+                historyConnectionFailed = false;
+            }
+
+            // 后端返回格式：{"data": [...]}，每条含 humidity/pump/light/angle/timestamp
+            var historyList = (data && data.data) ? data.data : null;
+
+            // 数据为空时显示空状态，不绘制随机 Mock 数据
+            if (!historyList || !Array.isArray(historyList) || historyList.length === 0) {
+                showHistoryEmpty();
+                return;
+            }
+
+            updateHistoryChart(historyList);
+        }
+
+        // 手动浇水按钮
+        document.getElementById('water-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('water-btn');
+            const feedback = document.getElementById('water-feedback');
+
+            // 先弹出确认框，用户取消则不发送请求
+            const confirmed = window.confirm('确定要立即浇水吗？');
+            if (!confirmed) {
+                return;
+            }
+
+            // 请求期间按钮保持禁用
+            btn.disabled = true;
+            feedback.innerText = '指令发送中...';
+            feedback.style.color = 'var(--blue)';
+
+            try {
+                let res = await fetch('/api/water', { method: 'POST' });
+                if (!res.ok) throw new Error();
+                // 浇水请求成功：才显示成功提示并保留水滴动画与日志
+                feedback.innerText = '浇水指令已发送';
+                feedback.style.color = '#00BFFF';
+                addLog('🎮 用户手动触发浇水指令');
+                triggerWaterDrops();
+            } catch (e) {
+                // 浇水请求失败：明确提示失败，不记录成功，不播放成功动画
+                feedback.innerText = '浇水指令发送失败';
+                feedback.style.color = '#ff4d4f';
+                addLog('⚠️ 浇水指令发送失败');
+            } finally {
+                // 请求完成，恢复按钮可点击
+                btn.disabled = false;
+                // 保留提示信息一段时间后清空
+                setTimeout(() => {
+                    feedback.innerText = '';
+                    feedback.style.color = 'var(--blue)';
+                }, 2500);
+            }
+        });
+
+        // 初始化与定时器
+        window.addEventListener('resize', () => {
+            humidityChart.resize();
+            healthChart.resize();
+            historyChart.resize();
+        });
+
+        addLog('🚀 系统初始化完成，开始监控');
+        fetchLatestData();
+        fetchHistoryData();
+        setInterval(fetchLatestData, 2000);
+        setInterval(fetchHistoryData, 10000); // 历史数据10秒刷新一次减轻压力
+
+    </script>
+</body>
+</html>
